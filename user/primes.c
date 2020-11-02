@@ -24,7 +24,7 @@ int main(){
             write(1, &i, sizeof(int));
         }
         close(1);
-        wait();        
+        wait();
     }
     exit();
 }
