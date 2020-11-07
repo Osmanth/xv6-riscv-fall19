@@ -7,6 +7,7 @@ int main(){
     int fd[2];
 
     pipe(fd);
+    //  从管道左边收到的第一个数，一定为素数
     if(fork() == 0){
         // 子进程
         close(0);

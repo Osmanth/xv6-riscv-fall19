@@ -3,9 +3,10 @@
 
 int main(){
     int parent_fd[2],child_fd[2];
-    char buf[64];
-
-    pipe(parent_fd);  // p[0]读出端，p[1]写入端
+    char buf[64];   // 读出缓存
+    
+    // 创建两个管道（单向） p[0]读出端，p[1]写入端
+    pipe(parent_fd);
     pipe(child_fd);
     
     if(fork() == 0){
@@ -16,7 +17,7 @@ int main(){
         close(child_fd[1]);
     }else{
         // 父进程，将“ping”写入parent_fd[1]
-        write(parent_fd[1], "ping", strlen("ping"));
+        write(parent_fd[1], "ping", sizeof("ping"));
         close(parent_fd[1]);
         read(child_fd[0], buf, sizeof(buf));
         printf("%d: received %s\n",getpid(), buf);
