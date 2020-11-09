@@ -4,8 +4,7 @@
 
 int main(int argc, char *argv[])
 {
-  int i, j, pid, len;
-  int first_blank;
+  int i, j, pid, len, first_blank;
   char args[MAXARG][32];
   char *p[MAXARG];
   char buf;
@@ -16,26 +15,23 @@ int main(int argc, char *argv[])
   }
   while (1)
   {
-    // init
     i = 0;
     first_blank = 0;
     memset(args, 0, MAXARG * 32);
 
-    // push command args and stdin args together
-    // the first arg must be command itself
-    for(j = 1; j < argc; j++) {
+    for(j = 1; j < argc; j++) 
       strcpy(args[i++], argv[j]);
-    }
-    j = 0;  
+
+    j = 0;
+
     while (i < MAXARG-1) {
+      // 退出：CTRL+D 
       if ((len = read(0, &buf, 1)) <= 0) {
-        // CTRL+D 
         wait(); 
         exit();
       }
-      if (buf == '\n') {
+      if (buf == '\n') 
         break;
-      }
       if (buf == ' ') {
         if (first_blank) {
           i++;
@@ -47,13 +43,11 @@ int main(int argc, char *argv[])
       args[i][j++] = buf;
       first_blank = 1;
     }
-    for (i = 0; i < MAXARG-1; i++) {
+    for (i = 0; i < MAXARG-1; i++) 
       p[i] = args[i];
-    }
-    // the last arg must be 0
+
     p[MAXARG-1] = 0;
-    
-    // exec command
+    // 调用指令
     if ((pid = fork()) == 0) {
       exec(argv[1], p);
       exit();

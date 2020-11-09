@@ -3,6 +3,19 @@
 #include "user/user.h"
 #include "kernel/fs.h"
 
+void find(char *path, char *re);
+
+int main(int argc, char *argv[])
+{
+  if(argc < 3){
+    fprintf(2, "usage: find <path> <expression>\n");
+    exit();
+  }
+  find(argv[1], argv[2]);
+  exit();
+}
+
+
 void find(char *path, char *re) 
 {
   char buf[512], *p;
@@ -10,7 +23,7 @@ void find(char *path, char *re)
   struct dirent de;
   struct stat st;
 
-  // open the dir
+  // 打开文件
   if((fd = open(path, 0)) < 0){
     fprintf(2, "find: cannot open %s\n", path);
     return;
@@ -20,9 +33,8 @@ void find(char *path, char *re)
     close(fd);
     return;
   }
-  // descent into sub-dir
+  // 进入子目录
   while(read(fd, &de, sizeof(de)) == sizeof(de)) {
-    // splice current path
     strcpy(buf, path);
     p = buf + strlen(buf);
     *p++ = '/';
@@ -42,7 +54,7 @@ void find(char *path, char *re)
         }
         break;
       case T_DIR:
-        // recursion
+        // 递归
         if (strcmp(de.name, ".") != 0 && strcmp(de.name, "..") != 0) {
           find(buf, re);
         }
@@ -52,12 +64,3 @@ void find(char *path, char *re)
   close(fd);
 }
 
-int main(int argc, char *argv[])
-{
-  if(argc < 3){
-    fprintf(2, "usage: find <path> <expression>\n");
-    exit();
-  }
-  find(argv[1], argv[2]);
-  exit();
-}
