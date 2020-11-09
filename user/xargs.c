@@ -13,6 +13,7 @@ int main(int argc, char *argv[])
     fprintf(2, "usage: xargs <cmd> ...\n");
     exit();
   }
+  // 
   while (1)
   {
     i = 0;
@@ -30,8 +31,10 @@ int main(int argc, char *argv[])
         wait(); 
         exit();
       }
+      // 读入回车，退出当前循环
       if (buf == '\n') 
         break;
+      // 读入空格，分割参数
       if (buf == ' ') {
         if (first_blank) {
           i++;
@@ -47,7 +50,9 @@ int main(int argc, char *argv[])
       p[i] = args[i];
 
     p[MAXARG-1] = 0;
-    // 调用指令
+    
+    // 外循环，调用指令，exec接收argv
+    //argv[0]为指令本身，最后一个参数为0
     if ((pid = fork()) == 0) {
       exec(argv[1], p);
       exit();
