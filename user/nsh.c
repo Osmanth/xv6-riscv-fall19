@@ -1,153 +1,124 @@
 // MyShell.
-
 #include "kernel/types.h"
 #include "user/user.h"
 #include "kernel/fcntl.h"
-
-// 宏定义
 #define MAXARGS 10
-#define EXEC 1
-#define REDIR 2
-#define PIPE  3
-#define LIST  4
-#define BACK  5
+#define MAXLEN 30
+#define MAXIN 100
 
-struct cmd{
-    int cmdtype;
-};
-
-struct execcmd{
-    int cmdtype;
-    char *argv[MAXARGS];
-    char *eargv[MAXARGS];
-};
-
-struct redircmd {
-  int cmdtype;
-  struct cmd *cmd;
-  char *file;
-  char *efile;
-  int mode;
-  int fd;
-};
-
-struct pipecmd {
-  int cmdtype;
-  struct cmd *left;
-  struct cmd *right;
-};
-
-struct listcmd {
-  int cmdtype;
-  struct cmd *left;
-  struct cmd *right;
-};
-
-struct backcmd {
-  int cmdtype;
-  struct cmd *cmd;
-};
-
-struct cmd*
-parsecmd(char *s)
+// 打印提示符‘@’，读入cmd（参考sh.c中的读入方法）
+int n_getcmd(char *buf, int nbuf)
 {
-    char *es;
-    struct cmd *cmd;
-    es = s + strlen(s);
-    
-};
-
-
-
-int ngetcmd(char*, int); // 读入cmd
-void nruncmd(); // 运行读入的cmd
-
-int nfork(void);    // 创建子进程
-void errprint(char*); // 打印错误信息
-
-
-int
-main(void)
-{
-    static char buff[100];
-    int fd;
-
-    // 确保三个fd打开
-    while ((fd = open("console", O_RDWR)) >= 0){
-        if(fd >=3){
-            close(fd);
-            break;
-        }
-    }
-
-    // 读入cmd
-    while (ngetcmd(buff, sizeof(buff)) >= 0){
-        // 父进程:调用cd指令
-        if(buff[0] == 'c' && buff[1] == 'd' && buff[2] == ' '){
-            buff[strlen(buff) - 1] = 0;
-            if (chdir(buff + 3) < 0)
-                fprintf(2, "cannot cd %s\n", buff + 3);
-            continue;
-        }
-
-        // 子进程
-        if (nfork() == 0){
-            nruncmd();
-        }
-        wait(0);
-    }
-    exit(0);   
-}
-
-// 读入cmd
-int 
-ngetcmd(char *buff, int nbuff)
-{
-    fprintf(2, "@");
-    memset(buff, 0, nbuff);
-    gets(buff, nbuff);
-    if (buff[0] == 0)
+    fprintf(2, "@ ");
+    memset(buf, 0, nbuf);
+    gets(buf, nbuf);
+    if (buf[0] == 0)
         return -1;
     return 0;
 }
 
-// 运行读入的cmd
-void
-nruncmd(struct cmd *ncmd)
+// 
+void n_set(char *cmd, char* argv[],int* argc)
 {
-    struct backcmd *bcmd;
-    struct execcmd *ecmd;
-    struct listcmd *lcmd;
-    struct pipecmd *pcmd;
-    struct redircmd *rcmd;
+    char needJump[] = " \t\r\n\v";
+    char args[MAXARGS][MAXLEN];
+    // 让argv的每一个元素都指向args的每一行
+    for(int m=0; m < MAXARGS; m++){
+        argv[m] = &args[m][0];
+    }
 
-    
+    int i = 0; // 表示第i个word
+    int j = 0;
+    for (; cmd[j] != '\n' && cmd[j] != '\0'; j++)
+    {
+        // 跳过空格
+        while (strchr(needJump,cmd[j]))
+            j++;
+        argv[i++]=cmd+j;
+        // 只要不是空格，就j++,找到下一个空格
+        while (strchr(needJump,cmd[j])==0)
+            j++;
 
+        cmd[j]='\0';
+    }
+    argv[i]=0;
+    *argc=i;
+}
+
+void n_pipe(char*argv[], int argc);
+
+void n_runcmd(char*argv[],int argc)
+{
+    for(int i=1;i<argc;i++){
+        if(!strcmp(argv[i],"|")){
+            // 如果遇到 | 即pipe，至少说明后面还有一个命令要执行
+            n_pipe(argv,argc);
+        }
+    }
+    // 此时是仅处理一个命令：现在判断argv[1]开始，后面有没有> 
+    for(int i=1;i<argc;i++){
+        // 如果遇到 > ，说明需要执行输出重定向，首先需要关闭stdout
+        if(!strcmp(argv[i],">")){
+            close(1);
+            // 此时需要把输出重定向到后面给出的文件名对应的文件里
+            // 当然如果>是最后一个，那就会error，不过暂时先不考虑
+            open(argv[i+1],O_CREATE|O_WRONLY);
+            argv[i]=0;
+        }
+        if(!strcmp(argv[i],"<")){
+            // 如果遇到< ,需要执行输入重定向，关闭stdin
+            close(0);
+            open(argv[i+1],O_RDONLY);
+            argv[i]=0;
+        }
+    }
+    exec(argv[0], argv);
+}
+
+// 执行管道
+void n_pipe(char*argv[], int argc){
+    int i=0;
+    int fd[2];
+    pipe(fd);
+    // 把cmd中的‘|’换成空字符‘\0’
+    for(; i<argc; i++){
+        if(!strcmp(argv[i],"|")){
+            argv[i]=0;
+            break;
+        }
+    }
+    // 先考虑最简单的情况：cat file | wc
+    if(fork()==0){
+        // 子进程 执行左边的命令 把自己的标准输出关闭
+        close(1);
+        dup(fd[1]);
+        close(fd[0]);
+        close(fd[1]);
+        
+        n_runcmd(argv,i);
+    }
+    else{
+        // 父进程 执行右边的命令 把自己的标准输入关闭
+        close(0);
+        dup(fd[0]);
+        close(fd[0]);
+        close(fd[1]);
+        
+        n_runcmd(argv+i+1,argc-i-1);
+    }
+}
+
+int main()
+{
+    char buf[MAXIN];
+    while (n_getcmd(buf, sizeof(buf)) >= 0){
+        if (fork() == 0){
+            char* argv[MAXARGS];
+            int argc=-1;
+            n_set(buf, argv,&argc);
+            n_runcmd(argv,argc);
+        }
+        wait(0);
+    }
     exit(0);
 }
-    
-
-// 创建子进程
-int
-nfork(void)
-{
-    int pid;
-    pid = fork();
-    if(pid == -1)
-        errprint("nfork error");
-    return pid;
-}
-
-// 打印错误信息
-void
-errprint(char *s)
-{
-    fprintf(2, "%s\n", s);
-    exit(-1);
-}
-
-// t1: echo
-//input: echo hello goodbye\n
-//output: hello goodbye
-int
-necho()
