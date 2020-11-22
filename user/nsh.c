@@ -18,7 +18,7 @@ int n_getcmd(char *buf, int nbuf)
 }
 
 // 处理cmd到argv数组中
-void n_set(char *cmd, char* argv[], int* argc)
+void n_args(char *cmd, char* argv[], int* argc)
 {
     // 定义要跳过的空格（仿照sh.h）
     char needJump[] = " \t\r\n\v";  
@@ -38,7 +38,6 @@ void n_set(char *cmd, char* argv[], int* argc)
         // 只要不是空格，就j++,找到下一个空格
         while (strchr(needJump, cmd[j]) == 0)
             j++;
-
         cmd[j] = '\0';
     }
     argv[i] = 0;
@@ -108,7 +107,7 @@ int main()
         if (fork() == 0){
             char* argv[MAXARGS];
             int argc = -1;
-            n_set(buf, argv, &argc);
+            n_args(buf, argv, &argc);
             n_runcmd(argv, argc);
         }
         wait(0);
