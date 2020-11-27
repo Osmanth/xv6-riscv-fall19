@@ -52,7 +52,7 @@ kfree(void *pa)
 {
   struct run *r;
   
-  // 获取当前CPU的id号
+  // 获取当前CPU的id号(关中断)
   push_off();
   int id = cpuid();
 
@@ -83,24 +83,24 @@ kalloc(void)
   push_off();
   int id = cpuid();
 
+  // 上锁，保护freelist
   acquire(&kmem.lock[id]);
   r = kmem.freelist[id];
   if(r)
     kmem.freelist[id] = r->next;
   release(&kmem.lock[id]);
 
-  //
   if(!r){
     for (int i = 0; i < NCPU; i++){
-      acquire(&kmem.lock[i]); //
-      r = kmem.freelist[i];   //
+      // 找其他CPU的frelist
+      acquire(&kmem.lock[i]);
+      r = kmem.freelist[i];
       if (r)
         kmem.freelist[i] = r -> next;
       release(&kmem.lock[i]);
 
       if (r)
         break;
-      
     }
   }
 
