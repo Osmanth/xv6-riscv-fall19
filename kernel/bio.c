@@ -23,31 +23,44 @@
 #include "fs.h"
 #include "buf.h"
 
+// 构建13个哈希组
+#define NBUCKETS 13
+
 struct {
-  struct spinlock lock;
+  struct spinlock lock[NBUCKETS];
   struct buf buf[NBUF];
 
   // Linked list of all buffers, through prev/next.
   // head.next is most recently used.
-  struct buf head;
+  //struct buf head;
+  struct buf hashbucket[NBUCKETS]; //每个哈希队列一个linked list及一个lock
 } bcache;
+
+uint
+hash(uint blockno){
+  return blockno % NBUCKETS;
+}
 
 void
 binit(void)
 {
   struct buf *b;
 
-  initlock(&bcache.lock, "bcache");
+  for(int i = 0; i < NBUCKETS; i++)
+    initlock(&bcache.lock[i], "bcache");
 
   // Create linked list of buffers
-  bcache.head.prev = &bcache.head;
-  bcache.head.next = &bcache.head;
-  for(b = bcache.buf; b < bcache.buf+NBUF; b++){
-    b->next = bcache.head.next;
-    b->prev = &bcache.head;
+  for (int i = 0; i < NBUCKETS; i++){
+    bcache.hashbucket[i].prev = &bcache.hashbucket[i];
+    bcache.hashbucket[i].next = &bcache.hashbucket[i];
+  }
+  
+  for(b = bcache.buf; b < bcache.buf + NBUF; b++){
+    b->next = bcache.hashbucket[0].next;
+    b->prev = &bcache.hashbucket[0];
     initsleeplock(&b->lock, "buffer");
-    bcache.head.next->prev = b;
-    bcache.head.next = b;
+    bcache.hashbucket[0].next->prev = b;
+    bcache.hashbucket[0].next = b;
   }
 }
 
@@ -59,30 +72,55 @@ bget(uint dev, uint blockno)
 {
   struct buf *b;
 
-  acquire(&bcache.lock);
+  // 得到id
+  uint id = hash(blockno);
+  uint id_n = id;
+
+  acquire(&bcache.lock[id]);
 
   // Is the block already cached?
-  for(b = bcache.head.next; b != &bcache.head; b = b->next){
+  for(b = bcache.hashbucket[id].next; b != &bcache.hashbucket[id]; b = b->next){
     if(b->dev == dev && b->blockno == blockno){
       b->refcnt++;
-      release(&bcache.lock);
+      release(&bcache.lock[id]);
       acquiresleep(&b->lock);
       return b;
     }
   }
 
-  // Not cached; recycle an unused buffer.
-  for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
-    if(b->refcnt == 0) {
-      b->dev = dev;
-      b->blockno = blockno;
-      b->valid = 0;
-      b->refcnt = 1;
-      release(&bcache.lock);
-      acquiresleep(&b->lock);
-      return b;
+  //
+  while (1){
+    id_n = (id_n + 1) % NBUCKETS;
+    if(id_n == id)
+      break;
+
+    acquire(&bcache.lock[id_n]);
+
+    // Not cached; recycle an unused buffer.
+    for (b = bcache.hashbucket[id_n].prev; b != &bcache.hashbucket[id_n]; b = b->prev){
+      if(b -> refcnt == 0) {
+        // 被引用次数为0
+        b->dev = dev;
+        b->blockno = blockno;
+        b->valid = 0;
+        b->refcnt = 1;
+        // 将别的hash桶里缓冲区放入当前id的缓冲区中
+        b->prev->next = b->next;
+        b->next->prev = b->prev;
+        release(&bcache.lock[id_n]);
+
+        b->next = bcache.hashbucket[id].next;
+        b->prev = &bcache.hashbucket[id];
+        b->next->prev = b;
+        b->prev->next = b;
+        release(&bcache.lock[id]);
+        acquiresleep(&b->lock);
+        return b;
+      }
     }
+    release(&bcache.lock[id_n]);
   }
+  
   panic("bget: no buffers");
 }
 
@@ -119,33 +157,39 @@ brelse(struct buf *b)
 
   releasesleep(&b->lock);
 
-  acquire(&bcache.lock);
+  uint id = hash(b->blockno);
+
+  acquire(&bcache.lock[id]);
   b->refcnt--;
   if (b->refcnt == 0) {
     // no one is waiting for it.
     b->next->prev = b->prev;
     b->prev->next = b->next;
-    b->next = bcache.head.next;
-    b->prev = &bcache.head;
-    bcache.head.next->prev = b;
-    bcache.head.next = b;
+    b->next = bcache.hashbucket[id].next;
+    b->prev = &bcache.hashbucket[id];
+    bcache.hashbucket[id].next->prev = b;
+    bcache.hashbucket[id].next = b;
   }
   
-  release(&bcache.lock);
+  release(&bcache.lock[id]);
 }
 
 void
 bpin(struct buf *b) {
-  acquire(&bcache.lock);
+  uint id = hash(b->blockno);
+
+  acquire(&bcache.lock[id]);
   b->refcnt++;
-  release(&bcache.lock);
+  release(&bcache.lock[id]);
 }
 
 void
 bunpin(struct buf *b) {
-  acquire(&bcache.lock);
+  uint id = hash(b->blockno);
+
+  acquire(&bcache.lock[id]);
   b->refcnt--;
-  release(&bcache.lock);
+  release(&bcache.lock[id]);
 }
 
 
