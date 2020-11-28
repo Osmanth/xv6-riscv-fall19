@@ -36,6 +36,7 @@ struct {
   struct buf hashbucket[NBUCKETS]; //每个哈希队列一个linked list及一个lock
 } bcache;
 
+// 哈希函数：查找hash值
 uint
 hash(uint blockno){
   return blockno % NBUCKETS;
@@ -88,7 +89,6 @@ bget(uint dev, uint blockno)
     }
   }
 
-  //
   while (1){
     id_n = (id_n + 1) % NBUCKETS;
     if(id_n == id)
@@ -104,7 +104,7 @@ bget(uint dev, uint blockno)
         b->blockno = blockno;
         b->valid = 0;
         b->refcnt = 1;
-        // 将别的hash桶里缓冲区放入当前id的缓冲区中
+        // 从别的hash桶里找缓冲区，放入当前id缓冲区中
         b->prev->next = b->next;
         b->next->prev = b->prev;
         release(&bcache.lock[id_n]);
