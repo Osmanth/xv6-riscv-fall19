@@ -80,7 +80,6 @@ fileclose(struct file *f)
   ff = *f;
   f->ref = 0;
   f->type = FD_NONE;
-  
   // 释放文件描述符
   bd_free(f);
 
