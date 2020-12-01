@@ -196,9 +196,9 @@ bd_free(void *p) {
     int buddy = (bi % 2 == 0) ? bi+1 : bi-1;
     //bit_clear(bd_sizes[k].alloc, bi);  // free p at size k
     bit_myset(bd_sizes[k].alloc, bi);
-    // 修
+    // 修TODO:
     //if (bit_isset(bd_sizes[k].alloc, buddy)) {  // is buddy allocated?
-    if (bit_get(bd_sizes[k].alloc, buddy)) {  // is buddy allocated?
+    if (bit_get(bd_sizes[k].alloc, bi)) {
       break;   // break out of loop
     }
     // budy is free; merge with buddy
@@ -278,9 +278,9 @@ bd_initfree_pair(int k, int bi, void *left, void *right) {
     // one of the pair is free
     free = BLK_SIZE(k);
     if(addr_in(addr(k,bi), free, left, right))
-      lst_push(&bd_sizes[k].free, addr(k, buddy));   // put buddy on free list
+      lst_push(&bd_sizes[k].free, addr(k, bi));   // put buddy on free list
     else
-      lst_push(&bd_sizes[k].free, addr(k, bi));      // put bi on free list
+      lst_push(&bd_sizes[k].free, addr(k, buddy));      // put bi on free list
 
     // if(bit_isset(bd_sizes[k].alloc, bi))
     //   lst_push(&bd_sizes[k].free, addr(k, buddy));   // put buddy on free list
@@ -358,7 +358,7 @@ bd_init(void *base, void *end) {
     lst_init(&bd_sizes[k].free);
     sz = sizeof(char)* ROUNDUP(NBLK(k), 8)/8;
     // sz_info的alloc空间初始化时，只分配原来一半的空间，两个相邻buddy共用一个bit
-    sz = sz/2;
+    sz = sizeof(char)* ROUNDUP(NBLK(k), 16)/16;
     bd_sizes[k].alloc = p;
     memset(bd_sizes[k].alloc, 0, sz);
     p += sz;
