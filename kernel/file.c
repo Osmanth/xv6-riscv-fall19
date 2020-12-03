@@ -30,9 +30,7 @@ struct file*
 filealloc(void)
 {
   struct file *f;
-
   acquire(&ftable.lock);
-
   // 使用bd_malloc动态申请文件描述符
   f = bd_malloc(sizeof(struct file));
   if(f){
@@ -82,7 +80,6 @@ fileclose(struct file *f)
   f->type = FD_NONE;
   // 释放文件描述符
   bd_free(f);
-
   release(&ftable.lock);
 
   if(ff.type == FD_PIPE){

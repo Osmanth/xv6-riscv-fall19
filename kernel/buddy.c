@@ -26,12 +26,12 @@ typedef struct list Bd_list;
 // 8 blocks).
 struct sz_info {
   Bd_list free;
-  char *alloc;
-  char *split;
+  char *alloc;  // 1bit，记录某块是否被分配出去
+  char *split;  // 1bit，记录某块是否发生分裂
 };
 typedef struct sz_info Sz_info;
 
-static Sz_info *bd_sizes; 
+static Sz_info *bd_sizes;   // bd_size[k]记录 2^k*16大小的块的分配情况
 static void *bd_base;   // start address of memory managed by the buddy allocator
 static struct spinlock lock;
 
@@ -57,15 +57,12 @@ void bit_myset(char *array, int index){
   array[index/8] = (b ^ m); // 记录：B1空闲 异或 B2空闲
 }
 
-// 如果当前索引在array中为1，返回1
-int bit_get(char *array, int index){
+// 如果当前索引在array中，返回1
+int bit_ismyset(char *array, int index){
   index = index / 2;
   char b = array[index/8];
   char m = (1 << (index % 8));
-  if((b & m) == m)
-    return 1;
-  else
-    return 0;  
+  return (b & m) == m;
 }
 
 // Clear bit at position index in array
@@ -196,9 +193,9 @@ bd_free(void *p) {
     int buddy = (bi % 2 == 0) ? bi+1 : bi-1;
     //bit_clear(bd_sizes[k].alloc, bi);  // free p at size k
     bit_myset(bd_sizes[k].alloc, bi);
-    // 修TODO:
+    // 判断buddy是否被占用
     //if (bit_isset(bd_sizes[k].alloc, buddy)) {  // is buddy allocated?
-    if (bit_get(bd_sizes[k].alloc, bi)) {
+    if (bit_ismyset(bd_sizes[k].alloc, bi)) {
       break;   // break out of loop
     }
     // budy is free; merge with buddy
@@ -239,10 +236,9 @@ void
 bd_mark(void *start, void *stop)
 {
   int bi, bj;
-
   if (((uint64) start % LEAF_SIZE != 0) || ((uint64) stop % LEAF_SIZE != 0))
     panic("bd_mark");
-
+  // 若k阶的块已被标注分配，所有小于k阶的块也必须被标注位分配
   for (int k = 0; k < nsizes; k++) {
     bi = blk_index(k, start);
     bj = blk_index_next(k, stop);
@@ -251,12 +247,12 @@ bd_mark(void *start, void *stop)
         // if a block is allocated at size k, mark it as split too.
         bit_set(bd_sizes[k].split, bi);
       }
-      bit_myset(bd_sizes[k].alloc, bi); // 修
+      bit_myset(bd_sizes[k].alloc, bi);
     }
   }
 }
 
-// 如果此时在
+// 如果此时的地址在范围内，说明未被占用，返回1
 int addr_in(void *addr, int size, void *left, void *right){
   if((addr >= left) && ((addr + size) < right))
     return 1;
@@ -264,28 +260,22 @@ int addr_in(void *addr, int size, void *left, void *right){
     return 0;  
 }
 
-
-// TODO：修
 // If a block is marked as allocated and the buddy is free, put the
 // buddy on the free list at size k.
 int
 bd_initfree_pair(int k, int bi, void *left, void *right) {
   int buddy = (bi % 2 == 0) ? bi+1 : bi-1;
   int free = 0;
-  
+  // 如果当前块被allocated
   //if(bit_isset(bd_sizes[k].alloc, bi) !=  bit_isset(bd_sizes[k].alloc, buddy)) {
-  if(bit_get(bd_sizes[k].alloc, bi)) {
+  if(bit_ismyset(bd_sizes[k].alloc, bi)) {
     // one of the pair is free
     free = BLK_SIZE(k);
+    // 若当前块未被占用，将此块放入free list
     if(addr_in(addr(k,bi), free, left, right))
-      lst_push(&bd_sizes[k].free, addr(k, bi));   // put buddy on free list
+      lst_push(&bd_sizes[k].free, addr(k, bi));
     else
-      lst_push(&bd_sizes[k].free, addr(k, buddy));      // put bi on free list
-
-    // if(bit_isset(bd_sizes[k].alloc, bi))
-    //   lst_push(&bd_sizes[k].free, addr(k, buddy));   // put buddy on free list
-    // else
-    //   lst_push(&bd_sizes[k].free, addr(k, bi));      // put bi on free list
+      lst_push(&bd_sizes[k].free, addr(k, buddy));
   }
   return free;
 }
@@ -349,6 +339,7 @@ bd_init(void *base, void *end) {
          (char*) end - p, nsizes);
 
   // allocate bd_sizes array
+  // 初始化allocated中的元数据，分配meta data，放在管理区域的开头，指针指向刚分配的末尾
   bd_sizes = (Sz_info *) p;
   p += sizeof(Sz_info) * nsizes;
   memset(bd_sizes, 0, sizeof(Sz_info) * nsizes);
@@ -356,7 +347,7 @@ bd_init(void *base, void *end) {
   // initialize free list and allocate the alloc array for each size k
   for (int k = 0; k < nsizes; k++) {
     lst_init(&bd_sizes[k].free);
-    sz = sizeof(char)* ROUNDUP(NBLK(k), 8)/8;
+    // sz = sizeof(char)* ROUNDUP(NBLK(k), 8)/8;
     // sz_info的alloc空间初始化时，只分配原来一半的空间，两个相邻buddy共用一个bit
     sz = sizeof(char)* ROUNDUP(NBLK(k), 16)/16;
     bd_sizes[k].alloc = p;
@@ -366,6 +357,7 @@ bd_init(void *base, void *end) {
 
   // allocate the split array for each size k, except for k = 0, since
   // we will not split blocks of size k = 0, the smallest size.
+  // k=0是最小的块，无法再split，故初始值k=1
   for (int k = 1; k < nsizes; k++) {
     sz = sizeof(char)* (ROUNDUP(NBLK(k), 8))/8;
     bd_sizes[k].split = p;
